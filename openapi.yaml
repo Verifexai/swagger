@@ -1,0 +1,510 @@
+openapi: 3.0.3
+info:
+  version: "0.0.1"
+  title: Verifex.Ai API
+  description: |
+    API documentation for the Verifex document platform.
+servers:
+  - url: https://{customer}.verifex.ai/prod
+    description: Customer-specific deployment
+    variables:
+      customer:
+        default: demo
+        description: Customer-specific subdomain (e.g., acme)
+
+tags:
+  - name: Analysis
+    description: APIs that trigger document analysis workflows.
+  - name: Documents
+    description: APIs that retrieve previously computed document risk assessments.
+
+components:
+  securitySchemes:
+    cognito-m2m:
+      type: oauth2
+      description: Client credentials flow against Cognito. Replace tokenUrl with your Cognito domain.
+      flows:
+        clientCredentials:
+          tokenUrl: https://YOUR_COGNITO_DOMAIN.auth.eu-central-1.amazoncognito.com/oauth2/token
+          scopes:
+            default-m2m-resource-server-s-hv60/read: Read access to Verifex protected APIs.
+
+  schemas:
+    DocumentUploadRequest:
+      type: object
+      required: [file_content, file_type]
+      properties:
+        file_content:
+          type: string
+          format: byte
+          description: Base64 encoded binary content of the document to analyse.
+        file_name:
+          type: string
+          description: Original file name, including extension, used for persistence metadata.
+        file_type:
+          type: string
+          description: Logical document type mapped to the platform FileType enumeration.
+          enum: [TaxCertificate, TerminationCertificate, InvoiceReceipt, Other]
+      additionalProperties: false
+
+    OcrReference:
+      type: object
+      required: [bucket, key]
+      properties:
+        bucket:
+          type: string
+        key:
+          type: string
+      additionalProperties: false
+
+    OcrImages:
+      type: object
+      properties:
+        bucket:
+          type: string
+        prefix:
+          type: string
+        keys:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+
+    DocumentAnalysisResponse:
+      type: object
+      required: [status, analysis]
+      properties:
+        status:
+          type: string
+          enum: [success]
+        analysis:
+          $ref: '#/components/schemas/DocumentAnalysis'
+
+    DocumentAnalysis:
+      type: object
+      required: [file_type, document, fraud_report, source, checks_count]
+      properties:
+        file_type:
+          type: string
+          description: FileType classification that determined downstream processing.
+        fraud_report:
+          $ref: '#/components/schemas/FraudReport'
+
+    AnalyzedDocument:
+      type: object
+      required: [bucket, key, doc_id]
+      properties:
+        bucket:
+          type: string
+          description: S3 bucket that stores the analysed document.
+        key:
+          type: string
+          description: S3 object key that points to the stored file.
+        doc_id:
+          type: string
+          description: Unique identifier assigned to the document.
+        original_file_name:
+          type: string
+          description: Original file name that was supplied by the uploader.
+
+    FraudReport:
+      type: object
+      required: [platform_version, run_id, document, overall, checks]
+      properties:
+        platform_version:
+          type: string
+        run_id:
+          type: string
+        document:
+          $ref: '#/components/schemas/FraudReportDocument'
+        overall:
+          $ref: '#/components/schemas/FraudOverall'
+        checks:
+          type: array
+          items:
+            $ref: '#/components/schemas/CheckResult'
+        meta:
+          type: object
+          description: Additional diagnostic information captured during the analysis run.
+          additionalProperties: true
+
+    FraudReportDocument:
+      type: object
+      required: [doc_id]
+      properties:
+        doc_id:
+          type: string
+        source:
+          type: string
+        mime_type:
+          type: string
+        num_pages:
+          type: integer
+          format: int32
+        created_at:
+          type: string
+          format: date-time
+        original_file_name:
+          type: string
+
+    FraudOverall:
+      type: object
+      properties:
+        summary:
+          type: string
+        risk_score:
+          type: number
+          format: double
+        risk_level:
+          type: string
+        severity:
+          type: string
+        status:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+
+    CheckResult:
+      type: object
+      required: [id, category, kind, title, description, score, status, evidence, timestamp]
+      properties:
+        id:
+          type: string
+        category:
+          type: string
+          description: Category enumeration describing the type of check.
+        kind:
+          type: string
+          description: Specific check identifier executed within the category.
+        title:
+          type: string
+        description:
+          type: string
+        score:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 100
+          description: 0 represents valid results, while 100 indicates high risk.
+        status:
+          type: string
+          description: Status assigned by the check (pass, warn, risk, error, or skipped).
+        evidence:
+          type: array
+          items:
+            $ref: '#/components/schemas/Evidence'
+        tags:
+          type: array
+          items:
+            type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    Evidence:
+      type: object
+      required: [type, value]
+      properties:
+        type:
+          type: string
+          description: Evidence type such as text, metric, or metadata.
+        value:
+          type: object
+          description: Raw evidence payload captured by the check.
+          additionalProperties: true
+        page:
+          type: integer
+          format: int32
+        bbox:
+          type: array
+          items:
+            type: number
+          minItems: 4
+          maxItems: 4
+          description: Normalised bounding box coordinates when evidence references page geometry.
+        extra:
+          type: object
+          additionalProperties: true
+
+    DocumentCheckSummary:
+      type: object
+      required: [doc_id, file_type]
+      properties:
+        doc_id:
+          type: string
+        file_type:
+          type: string
+        original_file_name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        risk_level:
+          type: number
+          format: double
+
+    DocumentCheckDetail:
+      allOf:
+        - $ref: '#/components/schemas/DocumentCheckSummary'
+        - type: object
+          properties:
+            bucket:
+              type: string
+            s3_path:
+              type: string
+            checks:
+              type: object
+              description: Persisted fraud report document including overall risk and check breakdowns.
+              additionalProperties: true
+            s3_path_image:
+              type: array
+              items:
+                type: string
+            asset_urls:
+              type: array
+              description: Presigned URLs for evidence image assets generated when include_assets=true.
+              items:
+                type: string
+            asset_url_error:
+              type: string
+            file_type:
+              type: string
+
+    PaginatedCheckResultsResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DocumentCheckSummary'
+        next_page_token:
+          type: string
+          description: Base64 encoded token for retrieving the next result page.
+
+    CheckSearchResponse:
+      type: array
+      items:
+        $ref: '#/components/schemas/DocumentCheckSummary'
+
+    ErrorResponse:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+
+    OversizedUploadErrorResponse:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          properties:
+            limit_bytes:
+              type: integer
+              format: int64
+              description: Configured maximum payload size enforced by the ingestion lambda.
+
+paths:
+  /analyse_file:
+    post:
+      tags: [Analysis]
+      summary: Submit a document for analysis
+      description: |
+        Accepts a document payload, performs comprehensive forensic analysis, and persists the resulting fraud report for later retrieval and audit.
+      requestBody:
+        required: true
+        description: Upload request describing the document that should be analysed.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocumentUploadRequest'
+      responses:
+        '200':
+          description: Document successfully analysed and persisted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentAnalysisResponse'
+        '400':
+          description: Invalid upload payload or unsupported request encoding.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: The uploaded payload exceeds the configured size limits.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OversizedUploadErrorResponse'
+        '500':
+          description: Unexpected failure while processing the document.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+        - cognito-m2m:
+            - default-m2m-resource-server-s-hv60/read
+
+  /documents:
+    get:
+      tags: [Documents]
+      summary: List stored document check results
+      description: |
+        Returns previously computed fraud reports. Results can be filtered by risk level,
+        paginated with a token, and sorted by creation timestamp or overall risk score.
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of check summaries to return.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100
+            default: 10
+        - name: page_token
+          in: query
+          description: Base64 encoded pagination token returned by a previous call.
+          schema:
+            type: string
+        - name: risk_level
+          in: query
+          description: |
+            Numeric threshold or severity label that filters the results. Accepted severity labels include
+            `low`, `medium`, `high`, and `critical` as configured in the platform.
+          schema:
+            type: string
+        - name: sort_by
+          in: query
+          description: Field that should be used to order the results before pagination.
+          schema:
+            type: string
+            enum: [created_at, risk_level]
+            default: created_at
+        - name: sort_order
+          in: query
+          description: Direction used when sorting the results.
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+      responses:
+        '200':
+          description: List of stored document check summaries.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCheckResultsResponse'
+        '400':
+          description: Invalid pagination token or filter expression.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal failure while querying the results table.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+        - cognito-m2m:
+            - default-m2m-resource-server-s-hv60/read
+
+  /documents/{doc_id}:
+    get:
+      tags: [Documents]
+      summary: Retrieve a single document check result
+      description: |
+        Fetches the stored fraud report and metadata for a specific analysed document. Optional parameters
+        allow narrowing the query to a particular file type as well as returning short-lived, signed URLs for stored evidence assets.
+      parameters:
+        - name: doc_id
+          in: path
+          required: true
+          description: Unique identifier that was assigned when the document was analysed.
+          schema:
+            type: string
+        - name: file_type
+          in: query
+          required: false
+          description: When provided, constrains the lookup to the matching FileType partition key.
+          schema:
+            type: string
+        - name: include_assets
+          in: query
+          required: false
+          description: When true, returns presigned URLs for associated page image assets when available.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Stored document fraud report and metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentCheckDetail'
+        '400':
+          description: Missing required parameters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: No check result was found for the supplied identifier.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal failure while reading from DynamoDB or S3.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+        - cognito-m2m:
+            - default-m2m-resource-server-s-hv60/read
+
+  /documents/search:
+    get:
+      tags: [Documents]
+      summary: Search document check results
+      description: Performs a search and return relevent results
+      parameters:
+        - name: search
+          in: query
+          required: true
+          description: Free-text value that is matched against IDs, file names, file types, timestamps, and risk scores.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Matching document check summaries.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckSearchResponse'
+        '400':
+          description: The search parameter was missing or empty.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal failure while scanning the checks table.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+        - cognito-m2m:
+            - default-m2m-resource-server-s-hv60/read
