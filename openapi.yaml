@@ -45,6 +45,13 @@ components:
           type: string
           description: Logical document type mapped to the platform FileType enumeration.
           enum: [TaxCertificate, TerminationCertificate, InvoiceReceipt, Other]
+        language:
+          type: string
+          description: |
+            Optional three-letter language code for OCR. Defaults to `eng` when omitted or invalid.
+          minLength: 3
+          maxLength: 3
+          pattern: "^[A-Za-z]{3}$"
       additionalProperties: false
 
     OcrReference:
@@ -168,7 +175,7 @@ components:
 
     CheckResult:
       type: object
-      required: [id, category, kind, title, description, score, status, evidence, timestamp]
+      required: [id, category, kind, title, description, hint, score, status, evidence, timestamp]
       properties:
         id:
           type: string
@@ -182,6 +189,9 @@ components:
           type: string
         description:
           type: string
+        hint:
+          type: string
+          description: User-friendly explanation of what is this check validation.
         score:
           type: integer
           format: int32
