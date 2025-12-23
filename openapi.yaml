@@ -48,12 +48,13 @@ components:
         language:
           type: string
           description: |
-            Optional three-letter language code for OCR. Defaults to `eng` when omitted or invalid.
+            Optional three-letter language code for OCR.
+            Defaults to `eng` when omitted or invalid.
           minLength: 3
           maxLength: 3
           pattern: "^[A-Za-z]{3}$"
+          default: eng
       additionalProperties: false
-
     OcrReference:
       type: object
       required: [bucket, key]
